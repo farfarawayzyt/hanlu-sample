@@ -48,7 +48,6 @@ def get_trainer(args):
         raise AttributeError(f'Unknown model : {args.model}')
     return train
 
-
 def main():
     args = set_parser()
     global best_acc
@@ -100,19 +99,19 @@ def main():
         from models.ema import ModelEMA
         ema_model = ModelEMA(args, model, args.ema_decay)
     args.start_epoch = 0
-    if args.resume:
-        logger.info("==> Resuming from checkpoint..")
-        assert os.path.isfile(
-            args.resume), "Error: no checkpoint directory found!"
-        args.out = os.path.dirname(args.resume)
-        checkpoint = torch.load(args.resume)
-        best_acc = checkpoint['best_acc']
-        args.start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        if args.use_ema:
-            ema_model.ema.load_state_dict(checkpoint['ema_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        scheduler.load_state_dict(checkpoint['scheduler'])
+    # if args.resume:
+    #     logger.info("==> Resuming from checkpoint..")
+    #     assert os.path.isfile(
+    #         args.resume), "Error: no checkpoint directory found!"
+    #     args.out = os.path.dirname(args.resume)
+    #     checkpoint = torch.load(args.resume)
+    #     best_acc = checkpoint['best_acc']
+    #     args.start_epoch = checkpoint['epoch']
+    #     model.load_state_dict(checkpoint['state_dict'])
+    #     if args.use_ema:
+    #         ema_model.ema.load_state_dict(checkpoint['ema_state_dict'])
+    #     optimizer.load_state_dict(checkpoint['optimizer'])
+    #     scheduler.load_state_dict(checkpoint['scheduler'])
 
     # if args.amp:
     #     model, optimizer = amp.initialize(

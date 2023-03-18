@@ -1,5 +1,7 @@
 checkpoint
 data
+log
+result
 
 .vscode
 .idea
