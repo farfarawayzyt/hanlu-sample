@@ -67,87 +67,89 @@ def fixmatch_train(args, labeled_trainloader, unlabeled_trainloader, model, opti
     # run_id = str(wandb.run.id)
     # profile_dir = f'./log/{run_id}'
     artifact = None
-    with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU],
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler('./log'),
-            record_shapes=True,
-            # profile_memory=True,
-            # with_stack=True
-            ) as prof:
-        for epoch in range(args.start_epoch, args.epochs):
-            model.train()
-            batch_time = AverageMeter()
-            data_time = AverageMeter()
-            losses = AverageMeter()
-            losses_x = AverageMeter()
-            losses_u = AverageMeter()
-            mask_probs = AverageMeter()
-            mask_acc = AverageMeter()
+    # with torch.profiler.profile(
+    #         activities=[torch.profiler.ProfilerActivity.CUDA, torch.profiler.ProfilerActivity.CPU],
+    #         schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+    #         on_trace_ready=torch.profiler.tensorboard_trace_handler('./log'),
+    #         record_shapes=True,
+    #         # profile_memory=True,
+    #         # with_stack=True
+    #         ) as prof:
+    for epoch in range(args.start_epoch, args.epochs):
+        model.train()
+        # batch_time = AverageMeter()
+        data_time = AverageMeter()
+        losses = AverageMeter()
+        losses_x = AverageMeter()
+        losses_u = AverageMeter()
+        mask_probs = AverageMeter()
+        mask_acc = AverageMeter()
 
-            for batch_idx in range(args.eval_step):
-                # (inputs_x, _), targets_x = next(labeled_iter)
-                labeled_data = next(labeled_iter)
-                inputs_x, targets_x = labeled_data[0]['weak'], labeled_data[0]['label']
-                inputs_x = torch.permute(inputs_x, (0, 3, 1, 2)).float() # NHWC => NCHW
-                # targets_x = torch.squeeze(targets_x)
-                targets_x= torch.squeeze(targets_x).type(torch.int64)
+        for batch_idx in range(args.eval_step):
+            # (inputs_x, _), targets_x = next(labeled_iter)
 
-                # (inputs_u_w, inputs_u_s), label_u = next(unlabeled_iter)
-                unlabeled_data = next(unlabeled_iter)
-                inputs_u_w, inputs_u_s, label_u = unlabeled_data[0]['weak'], unlabeled_data[0]['strong'], unlabeled_data[0]['label']
-                inputs_u_w = torch.permute(inputs_u_w, (0, 3, 1, 2)).float() # NHWC => NCHW
-                inputs_u_s = torch.permute(inputs_u_s, (0, 3, 1, 2)).float() # NHWC => NCHW
-                label_u = torch.squeeze(label_u).type(torch.int64)
+            data_start = time.perf_counter()
+            labeled_data = next(labeled_iter)
+            inputs_x, targets_x = labeled_data[0]['weak'], labeled_data[0]['label']
+            inputs_x = torch.permute(inputs_x, (0, 3, 1, 2)).float() # NHWC => NCHW
+            # targets_x = torch.squeeze(targets_x)
+            targets_x = torch.squeeze(targets_x).type(torch.int64)
 
-                # print(inputs_x.shape, inputs_x.dtype)
-                # print(targets_x.shape, targets_x.dtype)
+            # (inputs_u_w, inputs_u_s), label_u = next(unlabeled_iter)
+            unlabeled_data = next(unlabeled_iter)
+            inputs_u_w, inputs_u_s, label_u = unlabeled_data[0]['weak'], unlabeled_data[0]['strong'], unlabeled_data[0]['label']
+            inputs_u_w = torch.permute(inputs_u_w, (0, 3, 1, 2)).float() # NHWC => NCHW
+            inputs_u_s = torch.permute(inputs_u_s, (0, 3, 1, 2)).float() # NHWC => NCHW
+            label_u = torch.squeeze(label_u).type(torch.int64)
 
-                data_time_ = time.time() - end
-                data_time.update(time.time() - end)
-                data_start = time.time()
-                batch_size = inputs_x.shape[0]
-                inputs = interleave(
-                    torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2 * args.mu + 1)
-                targets_x = targets_x
-                to_time_ = time.time() - data_start
-                forward_start = time.time()
-                if args.amp:
-                    with autocast():
-                        Lu, Lx, loss, mask, targets_u = compute_loss(args, batch_size, inputs, label_u, model,
-                                                                    targets_x)
-                else:
-                    Lu, Lx, loss, mask, targets_u = compute_loss(args, batch_size, inputs, label_u, model, targets_x)
-                forward_time = time.time() - forward_start
-                backward_start = time.time()
-                if args.amp:
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
-                
+            # print(inputs_x.shape, inputs_x.dtype)
+            # print(targets_x.shape, targets_x.dtype)
+            data_end = time.perf_counter()
 
-                scheduler.step()
-                losses.update(loss.detach())
-                losses_x.update(Lx.detach())
-                losses_u.update(Lu.detach())
-                backward_time = time.time() - backward_start
+            to_start = time.perf_counter()
+            batch_size = inputs_x.shape[0]
+            inputs = interleave(
+                torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2 * args.mu + 1).to(args.device)
+            targets_x = targets_x.to(args.device)
+            to_end = time.perf_counter()
+            forward_start = time.perf_counter()
+            if args.amp:
+                with autocast():
+                    Lu, Lx, loss, mask, targets_u = compute_loss(args, batch_size, inputs, label_u, model,
+                                                                targets_x)
+            else:
+                Lu, Lx, loss, mask, targets_u = compute_loss(args, batch_size, inputs, label_u, model, targets_x)
+            forward_end = time.perf_counter()
+            backward_start = time.perf_counter()
+            if args.amp:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+            
 
-                if args.use_ema:
-                    ema_model.update(model)
-                model.zero_grad(set_to_none=True)
-                batch_time_ = time.time() - end
-                batch_time.update(batch_time_)
-                # mask_probs.update(mask.mean())
-                # mask_acc.update((((targets_u == label_u.to(args.device)).float() * mask).sum() / (mask.sum() + 1e-6)))
-                print(f"Time cost: Data: {data_time_:.4f}, To: {to_time_:.4f}, Forward: {forward_time:.4f}, Backward: {backward_time:.4f}, Total: {batch_time_:.4f}")
-                end = time.time()
+            scheduler.step()
+            losses.update(loss.detach())
+            losses_x.update(Lx.detach())
+            losses_u.update(Lu.detach())
+            backward_end = time.perf_counter()
 
-                prof.step()
+            if args.use_ema:
+                ema_model.update(model)
+            model.zero_grad(set_to_none=True)
+            # batch_end = time.time() - end
+            # batch_time.update(batch_time_)
+            # mask_probs.update(mask.mean())
+            # mask_acc.update((((targets_u == label_u.to(args.device)).float() * mask).sum() / (mask.sum() + 1e-6)))
+            print(f"Time cost: Data: {data_end-data_start:.4f}, To: {to_end-to_start:.4f}, Forward: {forward_end-forward_start:.4f}, Backward: {backward_end-backward_start:.4f}, Total: {backward_end-data_start:.4f}")
+
+                # prof.step()
 
 if __name__ == '__main__':
+    torch.backends.cudnn.benchmark = True
+
     args = set_parser()
 
     # manually setup for one gpu
